@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import mockMentors from '../api/mockMentors';
 import useInView from '../utils/useInView';
+import SessionTypeCard, { SESSION_TYPES } from '../components/SessionTypeCard';
 
 // ─── Animation wrapper ────────────────────────────────────────────────────────
 
@@ -220,6 +221,34 @@ function MentorPreviewCard({ mentor }) {
   );
 }
 
+// ─── What can you work on? ────────────────────────────────────────────────────
+
+function SessionTypes() {
+  return (
+    <section className="bg-amber-50 py-24 px-6">
+      <div className="max-w-5xl mx-auto">
+        <Reveal className="text-center mb-14">
+          <p className="text-xs font-semibold tracking-widest text-amber-600 uppercase mb-3">Session types</p>
+          <h2 className="text-3xl sm:text-4xl font-bold text-stone-900">What can you work on?</h2>
+          <p className="text-stone-500 mt-3 max-w-xl mx-auto text-base">
+            Every session is focused and intentional. Pick the format that matches where you are right now.
+          </p>
+        </Reveal>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {SESSION_TYPES.map((type, i) => (
+            <Reveal key={type.key} delay={i * 80}>
+              <SessionTypeCard type={type} />
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── Featured Mentors ─────────────────────────────────────────────────────────
+
 function FeaturedMentors() {
   const featured = mockMentors.slice(0, 3);
   return (
@@ -372,6 +401,7 @@ export default function Landing() {
     <>
       <Hero />
       <HowItWorks />
+      <SessionTypes />
       <FeaturedMentors />
       <Testimonials />
       <PricingTeaser />
