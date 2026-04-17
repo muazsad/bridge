@@ -1,0 +1,199 @@
+-- Bridge mentorship schema (v2) — paste into Supabase SQL Editor.
+-- Drops and recreates public tables: mentor_profiles, sessions, reviews, favorites.
+
+drop table if exists public.favorites cascade;
+drop table if exists public.reviews cascade;
+drop table if exists public.sessions cascade;
+drop table if exists public.mentor_profiles cascade;
+
+-- mentor_profiles: user_id has no FK so seed rows can use gen_random_uuid().
+create table public.mentor_profiles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid,
+  name text not null,
+  email text,
+  title text,
+  company text,
+  industry text,
+  bio text,
+  years_experience int,
+  expertise jsonb not null default '[]'::jsonb,
+  rating decimal(4, 2) not null default 0,
+  total_sessions int not null default 0,
+  available boolean not null default true,
+  image_url text,
+  created_at timestamptz not null default now(),
+  expertise_search text generated always as (lower(expertise::text)) stored
+);
+
+create table public.sessions (
+  id uuid primary key default gen_random_uuid(),
+  mentee_id uuid not null references auth.users (id) on delete cascade,
+  mentor_id uuid not null references public.mentor_profiles (id) on delete restrict,
+  session_type text not null,
+  scheduled_date timestamptz,
+  status text not null default 'pending',
+  message text,
+  created_at timestamptz not null default now(),
+  constraint sessions_session_type_check check (
+    session_type in ('career_advice', 'interview_prep', 'resume_review', 'networking')
+  ),
+  constraint sessions_status_check check (
+    status in ('pending', 'accepted', 'declined', 'completed')
+  )
+);
+
+create table public.reviews (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  reviewer_id uuid not null references auth.users (id) on delete cascade,
+  mentor_id uuid not null references public.mentor_profiles (id) on delete cascade,
+  rating int not null,
+  comment text,
+  created_at timestamptz not null default now(),
+  constraint reviews_rating_check check (rating >= 1 and rating <= 5)
+);
+
+create table public.favorites (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  mentor_id uuid not null references public.mentor_profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint favorites_user_mentor_unique unique (user_id, mentor_id)
+);
+
+-- Row Level Security ----------------------------------------------------------
+
+alter table public.mentor_profiles enable row level security;
+alter table public.sessions enable row level security;
+alter table public.reviews enable row level security;
+alter table public.favorites enable row level security;
+
+-- mentor_profiles
+create policy "mentor_profiles_select_all"
+  on public.mentor_profiles for select
+  using (true);
+
+create policy "mentor_profiles_insert_own_user"
+  on public.mentor_profiles for insert
+  with check (
+    auth.uid() is not null
+    and auth.uid() = user_id
+  );
+
+create policy "mentor_profiles_update_own_user"
+  on public.mentor_profiles for update
+  using (auth.uid() is not null and auth.uid() = user_id)
+  with check (auth.uid() is not null and auth.uid() = user_id);
+
+-- sessions
+create policy "sessions_select_mentee_or_mentor"
+  on public.sessions for select
+  using (
+    auth.uid() = mentee_id
+    or mentor_id in (
+      select mp.id from public.mentor_profiles mp where mp.user_id = auth.uid()
+    )
+  );
+
+create policy "sessions_insert_authenticated_mentee"
+  on public.sessions for insert
+  with check (
+    auth.uid() is not null
+    and auth.uid() = mentee_id
+  );
+
+create policy "sessions_update_by_linked_mentor"
+  on public.sessions for update
+  using (
+    exists (
+      select 1
+      from public.mentor_profiles mp
+      where mp.id = sessions.mentor_id
+        and mp.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.mentor_profiles mp
+      where mp.id = sessions.mentor_id
+        and mp.user_id = auth.uid()
+    )
+  );
+
+-- reviews
+create policy "reviews_select_all"
+  on public.reviews for select
+  using (true);
+
+create policy "reviews_insert_authenticated_reviewer"
+  on public.reviews for insert
+  with check (
+    auth.uid() is not null
+    and auth.uid() = reviewer_id
+  );
+
+create policy "reviews_delete_own"
+  on public.reviews for delete
+  using (auth.uid() = reviewer_id);
+
+-- favorites
+create policy "favorites_select_own"
+  on public.favorites for select
+  using (auth.uid() = user_id);
+
+create policy "favorites_insert_own"
+  on public.favorites for insert
+  with check (auth.uid() = user_id);
+
+create policy "favorites_delete_own"
+  on public.favorites for delete
+  using (auth.uid() = user_id);
+
+-- API grants ------------------------------------------------------------------
+
+grant usage on schema public to anon, authenticated;
+
+grant select on public.mentor_profiles to anon, authenticated;
+grant insert, update on public.mentor_profiles to authenticated;
+
+grant select, insert, update on public.sessions to authenticated;
+
+grant select on public.reviews to anon, authenticated;
+grant insert, delete on public.reviews to authenticated;
+
+grant select, insert, delete on public.favorites to authenticated;
+
+-- Seed (30 mentors) follows in bridge_schema.sql (concatenated).
+insert into public.mentor_profiles (user_id, name, email, title, company, industry, bio, years_experience, expertise, rating, total_sessions, available, image_url) values
+  (gen_random_uuid(), 'Priya Raman', 'priya0@bridge.demo', 'Staff Software Engineer', 'Google', 'technology', 'I have spent a decade building large-scale distributed systems and mentoring engineers through promo cycles and system design interviews. My focus is helping mid-level engineers sharpen trade-offs, debugging discipline, and communication with senior stakeholders. I enjoy working with people pivoting into backend roles or preparing for staff-level expectations.', 12, '["System Design", "Go", "Kubernetes", "Interview Prep", "Career Growth"]'::jsonb, 4.85, 220, true, null),
+  (gen_random_uuid(), 'Marcus Chen', 'marcus1@bridge.demo', 'Senior Frontend Engineer', 'Meta', 'technology', 'I lead UI architecture for consumer products and have interviewed hundreds of candidates across React and JavaScript fundamentals. I help mentees build portfolios that tell a story and practice structured problem solving under time pressure. Many of my mentees have landed roles at product-led companies after tightening their frontend fundamentals.', 9, '["React", "TypeScript", "Performance", "Accessibility", "Networking"]'::jsonb, 4.72, 156, true, null),
+  (gen_random_uuid(), 'Elena Vasquez', 'elena2@bridge.demo', 'Principal Engineer', 'Apple', 'technology', 'I work on performance-critical client software and have guided engineers from E4 to principal tracks across hardware-adjacent teams. I specialize in coaching on scope, technical judgment, and cross-functional leadership without burning out. I am especially helpful if you are navigating ambiguous projects with many partners.', 16, '["Swift", "Architecture", "Leadership", "Scope Management", "iOS"]'::jsonb, 4.91, 410, true, null),
+  (gen_random_uuid(), 'Jordan Okonkwo', 'jordan3@bridge.demo', 'Software Engineer II', 'Amazon', 'technology', 'I grew from new grad to mid-level on core AWS-adjacent services and know how operational excellence maps to career growth. I mentor on operational readiness, metrics ownership, and writing crisp narratives for promotion. I love helping people from non-traditional backgrounds succeed in Big Tech.', 6, '["AWS", "Distributed Systems", "Operational Excellence", "Promotion Narratives"]'::jsonb, 4.55, 98, true, null),
+  (gen_random_uuid(), 'Sofia Lindstrom', 'sofia4@bridge.demo', 'Engineering Manager', 'Microsoft', 'technology', 'I transitioned from IC to manager at Microsoft and coach engineers considering management or wanting to lead without a title. We work on feedback, delegation, and stakeholder alignment in large organizations. I also help ICs understand how managers evaluate impact.', 11, '["Engineering Management", "Career Transitions", "Stakeholders", "Feedback"]'::jsonb, 4.68, 175, true, null),
+  (gen_random_uuid(), 'Dev Patel', 'dev5@bridge.demo', 'Senior Engineer', 'Stripe', 'technology', 'Payments and reliability are my world; I help engineers reason about correctness, idempotency, and incident response under pressure. I have supported many mentees through Stripe-style interviews and on-call readiness. We can also dig into API design and developer experience for platform teams.', 8, '["Payments", "Reliability", "API Design", "Incidents"]'::jsonb, 4.79, 203, true, null),
+  (gen_random_uuid(), 'Amelia Frost', 'amelia6@bridge.demo', 'Product Engineer', 'Notion', 'technology', 'I blend product sense with full-stack execution at a fast-moving productivity company. I mentor on prioritization, prototyping, and communicating technical choices to PMs and designers. Great fit if you want to grow as a product-minded engineer rather than only deepening algorithms.', 5, '["Product Engineering", "Full Stack", "Prioritization", "Collaboration"]'::jsonb, 4.63, 74, true, null),
+  (gen_random_uuid(), 'Ryan Okafor', 'ryan7@bridge.demo', 'Staff Developer Advocate', 'Vercel', 'technology', 'I help developers adopt modern web tooling and have spoken at conferences worldwide. I coach on public speaking, technical writing, and building a personal brand without losing depth. Ideal if you want to move toward developer relations or education-heavy engineering roles.', 7, '["Web Platform", "DX", "Public Speaking", "Content"]'::jsonb, 4.58, 112, true, null),
+  (gen_random_uuid(), 'Victoria Huang', 'victoria8@bridge.demo', 'Vice President', 'Goldman Sachs', 'finance', 'I work in investment banking coverage and have trained dozens of analysts through steep learning curves in modeling and client materials. I help candidates from non-target schools craft credible narratives and practice technicals efficiently. Sessions often focus on time management, attention to detail, and networking inside banks.', 10, '["IB Technicals", "Modeling", "Networking", "Non-Target"]'::jsonb, 4.82, 285, true, null),
+  (gen_random_uuid(), 'James Whitaker', 'james9@bridge.demo', 'Associate', 'JPMorgan', 'finance', 'I joined markets after a PhD pivot and understand how to translate research skills into trading-floor expectations. We work on market intuition, risk framing, and concise communication under pressure. I also help with internship conversion and desk selection.', 6, '["Markets", "Risk", "PhD Pivot", "Communication"]'::jsonb, 4.61, 94, true, null),
+  (gen_random_uuid(), 'Nadia El-Sayed', 'nadia10@bridge.demo', 'Private Equity Associate', 'Blackstone', 'finance', 'I evaluate buyout opportunities and mentor professionals breaking into private equity from consulting or banking. We drill LBO models, deal storytelling, and how to show judgment in case studies. I emphasize sustainable work habits because PE recruiting is a marathon.', 8, '["Private Equity", "LBO", "Case Studies", "Recruiting"]'::jsonb, 4.77, 168, true, null),
+  (gen_random_uuid(), 'Thomas Berg', 'thomas11@bridge.demo', 'Quant Researcher', 'Citadel', 'finance', 'I build systematic strategies and interview candidates on probability, coding, and market microstructure. I help strong STEM profiles translate academic depth into production-minded thinking. Expect honest feedback on whiteboard speed and research communication.', 9, '["Quant", "Probability", "Python", "Microstructure"]'::jsonb, 4.88, 241, true, null),
+  (gen_random_uuid(), 'Isabelle Moreau', 'isabelle12@bridge.demo', 'Director', 'McKinsey & Company', 'finance', 'I advise financial institutions on strategy and coach consultants aiming for finance exits. We sharpen issue trees, executive communication, and how to network into investing roles. I also help with PE and hedge fund recruiting timelines.', 14, '["Strategy", "Consulting", "Finance Exit", "Executive Presence"]'::jsonb, 4.73, 312, true, null),
+  (gen_random_uuid(), 'Dr. Kenji Morita', 'dr13@bridge.demo', 'Clinical Informatics Lead', 'Mayo Clinic', 'healthcare', 'I bridge bedside medicine with EHR analytics and mentor clinicians exploring health-tech paths. We discuss translating clinical insight into product requirements and collaborating with data teams. I also help with resumes that highlight both patient care and technical fluency.', 13, '["Clinical Informatics", "EHR", "Health Tech", "Career Pivot"]'::jsonb, 4.69, 189, true, null),
+  (gen_random_uuid(), 'Dr. Amina Farah', 'dr14@bridge.demo', 'Research Physician', 'Johns Hopkins', 'healthcare', 'I run translational research programs and guide MDs toward biotech and pharma strategy roles. Sessions cover stakeholder mapping, regulatory basics, and interview prep for medical affairs. I am direct about timelines and credential expectations.', 11, '["Translational Research", "Biotech", "Medical Affairs", "Regulatory"]'::jsonb, 4.74, 143, true, null),
+  (gen_random_uuid(), 'Robert Klein', 'robert15@bridge.demo', 'Director of R&D Partnerships', 'Pfizer', 'healthcare', 'I negotiate collaborations between pharma R&D and external innovators. I mentor scientists moving toward alliance management or BD roles. We practice storytelling for complex science and stakeholder alignment across legal, IP, and clinical teams.', 15, '["Pharma R&D", "Partnerships", "BD", "Storytelling"]'::jsonb, 4.66, 267, true, null),
+  (gen_random_uuid(), 'Laura Bennett', 'laura16@bridge.demo', 'VP Operations', 'Teladoc Health', 'healthcare', 'I scaled virtual care operations through rapid growth and coach operators entering digital health. Topics include metrics, vendor management, and leading remote clinical teams. I enjoy helping mission-driven leaders balance speed with compliance.', 9, '["Digital Health", "Operations", "Scaling", "Compliance"]'::jsonb, 4.59, 121, true, null),
+  (gen_random_uuid(), 'Olivia Park', 'olivia17@bridge.demo', 'Head of Brand', 'Figma', 'marketing', 'I built brand systems for a beloved design tool and mentor marketers moving into PLG SaaS. We cover narrative, launches, and cross-functional rituals with product and sales. I also help creatives strengthen strategic storytelling for leadership roles.', 10, '["Brand", "PLG", "Product Marketing", "Storytelling"]'::jsonb, 4.71, 198, true, null),
+  (gen_random_uuid(), 'Hugo Silva', 'hugo18@bridge.demo', 'Growth Lead', 'Notion', 'marketing', 'I own lifecycle and acquisition experiments for a high-velocity SaaS company. I help mentees design growth loops, interpret experiment results, and communicate impact to executives. Great if you are transitioning from agency or media buying to in-house growth.', 7, '["Growth", "Experimentation", "Lifecycle", "SaaS"]'::jsonb, 4.64, 134, true, null),
+  (gen_random_uuid(), 'Chloe Martin', 'chloe19@bridge.demo', 'Senior PMM', 'Linear', 'marketing', 'I launch developer-facing products and coach PMMs on technical fluency without pretending to be engineers. We refine positioning, launch checklists, and sales enablement in bottom-up motions. I also help IC PMMs prepare for manager interviews.', 8, '["Developer Marketing", "PMM", "Positioning", "Launches"]'::jsonb, 4.76, 156, true, null),
+  (gen_random_uuid(), 'Danielle Brooks', 'danielle20@bridge.demo', 'CMO', 'LVMH', 'marketing', 'I lead luxury marketing across regions and mentor marketers entering premium consumer brands. We discuss cultural nuance, retail-digital integration, and building teams with craft sensitivity. Expect candid feedback on portfolio depth and executive presence.', 17, '["Luxury", "Global Marketing", "Brand Strategy", "Leadership"]'::jsonb, 4.83, 389, true, null),
+  (gen_random_uuid(), 'Wei Zhang', 'wei21@bridge.demo', 'Staff ML Engineer', 'Apple', 'data science', 'I ship on-device ML features and mentor data scientists transitioning to production engineering. We focus on latency constraints, evaluation beyond accuracy, and partnering with hardware teams. Helpful if you want to grow from notebook research to shipped models.', 12, '["ML Production", "On-Device ML", "Evaluation", "Python"]'::jsonb, 4.87, 276, true, null),
+  (gen_random_uuid(), 'Fatima Al-Rashid', 'fatima22@bridge.demo', 'Lead Data Scientist', 'Pfizer', 'data science', 'I design analytics for clinical development and guide statisticians into data science leadership. Sessions cover causal thinking, study design communication, and influencing cross-functional committees. I emphasize ethics and rigor in regulated settings.', 10, '["Clinical Analytics", "Causal Inference", "Regulated DS", "Leadership"]'::jsonb, 4.7, 198, true, null),
+  (gen_random_uuid(), 'Greg Nolan', 'greg23@bridge.demo', 'Analytics Engineer', 'Stripe', 'data science', 'I build trusted metrics layers for fintech products and help analysts level up in SQL, dbt, and data modeling. We also discuss how to partner with finance and product on definitions. Ideal for people moving from ad-hoc reporting to platform thinking.', 6, '["Analytics Engineering", "dbt", "SQL", "Metrics"]'::jsonb, 4.62, 103, true, null),
+  (gen_random_uuid(), 'Yuki Tanaka', 'yuki24@bridge.demo', 'Research Scientist', 'DeepMind', 'data science', 'I work on reinforcement learning research and mentor PhDs navigating industry research interviews. We practice paper discussions, coding under uncertainty, and mapping academic projects to product impact. I am honest about fit between research and applied teams.', 8, '["RL", "Research Interviews", "PhD to Industry", "Coding"]'::jsonb, 4.92, 445, true, null),
+  (gen_random_uuid(), 'Dr. Emily Carter', 'dr25@bridge.demo', 'Dean of Career Learning', 'Coursera', 'education', 'I design cohort-based career programs for global learners and coach educators moving into ed-tech product roles. We work on curriculum strategy, learner outcomes, and cross-functional collaboration with data and marketing. I love helping mission-driven people scale impact.', 14, '["EdTech", "Curriculum", "Product", "Scale"]'::jsonb, 4.67, 231, true, null),
+  (gen_random_uuid(), 'Michael Osei', 'michael26@bridge.demo', 'Principal', 'Khan Academy', 'education', 'I lead engineering for learning tools that serve millions of students. I mentor engineers who care about equity, accessibility, and measurable learning gains. Sessions often cover technical leadership in nonprofits and how to balance mission with sustainability.', 11, '["Education Equity", "Accessibility", "Nonprofit Tech", "Leadership"]'::jsonb, 4.71, 178, true, null),
+  (gen_random_uuid(), 'Rachel Kim', 'rachel27@bridge.demo', 'University Partnerships Lead', 'Duolingo', 'education', 'I negotiate partnerships between a consumer learning app and academic institutions. I help educators and operators pivot into partnerships or strategy roles at learning companies. We practice negotiation storytelling and stakeholder mapping.', 9, '["Partnerships", "Strategy", "Learning Apps", "Negotiation"]'::jsonb, 4.58, 119, true, null),
+  (gen_random_uuid(), 'Andrew Blake', 'andrew28@bridge.demo', 'Corporate Counsel', 'Stripe', 'law', 'I support fintech product launches and mentor attorneys moving in-house from firms. We discuss translating legal risk for engineers, contract velocity, and building trust with GTM teams. I also help with in-house interview narratives.', 12, '["Fintech Legal", "In-House", "Product Counsel", "Risk Communication"]'::jsonb, 4.65, 204, true, null),
+  (gen_random_uuid(), 'Sana Rahman', 'sana29@bridge.demo', 'Associate', 'Deloitte', 'law', 'I advise clients on regulatory compliance across industries and coach law students targeting consulting-adjacent roles. We refine case interview structure, Excel fluency expectations, and networking into advisory practices. I emphasize clarity under time pressure.', 5, '["Compliance", "Consulting", "Case Interview", "Law School"]'::jsonb, 4.52, 67, true, null);

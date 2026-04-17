@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import mockMentors from '../api/mockMentors';
+import { getFeaturedMentors } from '../api/mentors';
+import LoadingSpinner from '../components/LoadingSpinner';
 import useInView from '../utils/useInView';
 import SessionTypeCard, { SESSION_TYPES } from '../components/SessionTypeCard';
 
@@ -250,7 +252,39 @@ function SessionTypes() {
 // ─── Featured Mentors ─────────────────────────────────────────────────────────
 
 function FeaturedMentors() {
-  const featured = mockMentors.slice(0, 3);
+  const [featured, setFeatured] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setLoading(true);
+    setError(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+
+    void (async () => {
+      const { data, error: fetchError } = await getFeaturedMentors();
+      if (cancelled) return;
+      setLoading(false);
+      if (fetchError) {
+        setFeatured([]);
+        setError(fetchError.message || 'Could not load featured mentors.');
+        return;
+      }
+      setFeatured(data ?? []);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  function loadFeatured() {
+    setReloadKey((k) => k + 1);
+  }
+
   return (
     <section className="bg-amber-50 py-24 px-6">
       <div className="max-w-5xl mx-auto">
@@ -267,13 +301,29 @@ function FeaturedMentors() {
           </Link>
         </Reveal>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-          {featured.map((m, i) => (
-            <Reveal key={m.id} delay={i * 100}>
-              <MentorPreviewCard mentor={m} />
-            </Reveal>
-          ))}
-        </div>
+        {loading ? (
+          <LoadingSpinner label="Loading featured mentors…" className="py-8" />
+        ) : error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm max-w-xl">
+            <p className="font-semibold">Couldn&apos;t load mentors</p>
+            <p className="mt-1 text-red-800/90">{error}</p>
+            <button
+              type="button"
+              onClick={loadFeatured}
+              className="mt-3 text-sm font-medium px-4 py-2 rounded-full bg-red-900 text-white hover:bg-red-800 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {featured.map((m, i) => (
+              <Reveal key={m.id} delay={i * 100}>
+                <MentorPreviewCard mentor={m} />
+              </Reveal>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -406,6 +456,30 @@ export default function Landing() {
       <Testimonials />
       <PricingTeaser />
       <FinalCTA />
+      <section className="max-w-5xl mx-auto px-6 py-12">
+        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-orange-500 mb-2">
+              Affordable access
+            </p>
+            <h2 className="text-2xl md:text-3xl font-bold text-stone-900">
+              Plans starting at $0
+            </h2>
+            <p className="mt-2 text-stone-600">
+              Start free, explore mentors, and upgrade when you're ready for more sessions and support.
+            </p>
+          </div>
+
+          <a
+              href="/pricing"
+              className="px-6 py-3 rounded-full bg-stone-900 text-amber-50 hover:bg-stone-700 transition-colors"
+          >
+            View Pricing
+          </a>
+        </div>
+      </section>
     </>
+
   );
+
 }
