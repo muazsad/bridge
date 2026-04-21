@@ -213,7 +213,9 @@ function BookingFlow({ mentor, sessionType, onReset, onRequestConfirm, user, nav
                         >
                             {canBook ? 'Book session →' : 'Pick a date & time'}
                         </button>
-
+                        <p className="mt-2 text-center text-xs text-stone-400">
+                            Pro plan required for unlimited sessions.
+                        </p>
                         <button
                             type="button"
                             onClick={onReset}
