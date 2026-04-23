@@ -10,6 +10,7 @@ import Reveal from '../components/Reveal';
 import { focusRing } from '../ui';
 import MentorMatchWizard from '../components/MentorMatchWizard';
 import { getAIMatchedMentors, saveMenteeAssessment, loadMenteeAssessment } from '../api/aiMatching';
+import { getRemainingUses, hasReachedLimit, recordUsage, LIMITS } from '../api/aiUsage';
 
 const PAGE_SIZE = 12;
 const focusRingDarkChip =
@@ -439,6 +440,7 @@ export default function Mentors() {
   const [aiMode, setAiMode] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [remainingUses, setRemainingUses] = useState(null);
   const [aiResults, setAiResults] = useState(null); // { top_matches, honorable_mentions }
   const [allMentorsForAi, setAllMentorsForAi] = useState([]);
   const [savedMenteeProfile, setSavedMenteeProfile] = useState(null);
@@ -531,10 +533,16 @@ export default function Mentors() {
       navigate('/login', { state: { message: 'Please log in to use AI mentor matching' } });
       return;
     }
+    if (await hasReachedLimit(user.id, 'mentor_match')) return;
     const { data: existing } = await loadMenteeAssessment(user.id);
     setPrefillData(existing ?? null);
     setWizardOpen(true);
   }
+
+  useEffect(() => {
+    if (!user || isMentorAccount(user)) return;
+    void getRemainingUses(user.id, 'mentor_match').then(setRemainingUses);
+  }, [user]);
 
   // Auto-open wizard when navigated here from Resume Review page
   useEffect(() => {
@@ -581,6 +589,12 @@ export default function Mentors() {
       });
 
       setAiResults(results);
+      try {
+        await recordUsage(user.id, 'mentor_match');
+        setRemainingUses((prev) => Math.max(0, (prev ?? 1) - 1));
+      } catch {
+        // recording failure is non-fatal — results still display
+      }
     } catch (e) {
       setAiError(e.message || 'Something went wrong. Please try again.');
     } finally {
@@ -780,16 +794,29 @@ export default function Mentors() {
                 </div>
 
                 {!asMentor ? (
-                  <button
-                    type="button"
-                    onClick={handleAiMatchClick}
-                    className={`btn-sheen group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_26px_-6px_rgba(234,88,12,0.55)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-8px_rgba(234,88,12,0.7)] ${focusRing}`}
-                  >
-                    <svg className="h-4 w-4 transition group-hover:rotate-12" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
-                    </svg>
-                    AI Match
-                  </button>
+                  <div className="flex flex-col items-start gap-1">
+                    {remainingUses !== null && (
+                      <p className="text-xs font-medium text-stone-500">
+                        {remainingUses} of {LIMITS.mentor_match} mentor matches remaining
+                      </p>
+                    )}
+                    {remainingUses === 0 ? (
+                      <p className="rounded-full border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-medium text-stone-400">
+                        You&apos;ve used all 3 of your free mentor matches.
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleAiMatchClick}
+                        className={`btn-sheen group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_10px_26px_-6px_rgba(234,88,12,0.55)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-8px_rgba(234,88,12,0.7)] ${focusRing}`}
+                      >
+                        <svg className="h-4 w-4 transition group-hover:rotate-12" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+                        </svg>
+                        AI Match
+                      </button>
+                    )}
+                  </div>
                 ) : null}
 
                 <div className="flex gap-2.5">
