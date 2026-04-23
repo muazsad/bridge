@@ -43,8 +43,11 @@ export default function Register() {
     if (!validate()) return;
     setLoading(true);
     try {
-      await register(email.trim(), password, { full_name: fullName.trim(), role });
-      navigate("/mentors");
+      await register(email.trim(), password, {
+        full_name: fullName.trim(),
+        role,
+      });
+      navigate(role === 'mentor' ? '/onboarding' : '/mentors', { replace: true });
     } catch (err) {
       setServerError(err.message || "Registration failed. Please try again.");
     } finally {
