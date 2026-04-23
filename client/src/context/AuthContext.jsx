@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import supabase from "../api/supabase";
+import { ensureMentorProfileForUser } from "../api/mentorOnboarding";
 
 export const AuthContext = createContext(null);
 
@@ -13,8 +14,11 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
+      if (event === 'SIGNED_IN' && session?.user?.user_metadata?.role === 'mentor') {
+        ensureMentorProfileForUser(session.user).catch(console.error);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -42,6 +46,9 @@ export function AuthProvider({ children }) {
     });
     if (error) throw error;
     setUser(data.user);
+    if (meta.role === 'mentor' && data.user) {
+      await ensureMentorProfileForUser(data.user);
+    }
     return data.user;
   }
 
