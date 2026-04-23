@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, User as UserIcon, Eye, EyeOff, ArrowRight, GraduationCap, Sparkles, AlertCircle, ShieldCheck, Zap } from 'lucide-react';
-import { useAuth } from '../context/useAuth';
+import { useAuth } from '../context/AuthContext';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Reveal from '../components/Reveal';
 import { focusRing } from '../ui';
