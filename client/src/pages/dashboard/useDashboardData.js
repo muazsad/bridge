@@ -40,7 +40,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { isMentorAccount } from '../../utils/accountRole';
-import { getMySession, updateSessionStatus } from '../../api/sessions';
+import { getMySession, updateSessionStatus, acceptSession } from '../../api/sessions';
 import supabase from '../../api/supabase';
 
 /** PostgREST needs sessions.mentee_id → auth.users FK for mentee:mentee_id(...) embeds (PGRST200 if missing). */
@@ -67,6 +67,8 @@ export function useDashboardData(user, authLoading) {
   const [actionLoading, setActionLoading] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const [refetchNonce, setRefetchNonce] = useState(0);
+  const refetch = useCallback(() => setRefetchNonce((n) => n + 1), []);
 
   // Re-fetch when user logs in/out or role changes (isMentor flips register vs mentor account).
   useEffect(() => {
@@ -156,7 +158,7 @@ export function useDashboardData(user, authLoading) {
         setDataLoading(false);
       }
     })();
-  }, [user, authLoading, isMentor]);
+  }, [user, authLoading, isMentor, refetchNonce]);
 
   /** Pending or accepted, and still in the future (or missing date treated as upcoming). */
   const upcomingSessions = useMemo(() => {
@@ -235,8 +237,13 @@ export function useDashboardData(user, authLoading) {
     setActionLoading(sessionId);
     setError(null);
     try {
-      await updateSessionStatus(sessionId, status);
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, status } : s)));
+      let updated;
+      if (status === 'accepted') {
+        updated = await acceptSession(sessionId);
+      } else {
+        updated = await updateSessionStatus(sessionId, status);
+      }
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, ...updated } : s)));
     } catch (err) {
       console.error('Session status update failed:', err);
       setError(err.message ?? 'Failed to update session. Please try again.');
@@ -268,5 +275,6 @@ export function useDashboardData(user, authLoading) {
     uniqueMentors,
     menteeCards,
     handleStatusUpdate,
+    refetch,
   };
 }
