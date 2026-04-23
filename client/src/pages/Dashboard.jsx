@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getMySession, updateSessionStatus } from "../api/sessions";
 import { getMentorById } from "../api/mentors";
@@ -117,6 +117,8 @@ export default function Dashboard() {
   const [actionLoading, setActionLoading] = useState(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [mentorProfileId, setMentorProfileId] = useState(null);
+  const [onboardingComplete, setOnboardingComplete] = useState(null);
+  const [calendarConnected, setCalendarConnected] = useState(null);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -131,10 +133,21 @@ export default function Dashboard() {
 
         if (isMentor) {
           const { data: profileData, error: profileError } = await supabase
-            .from("mentor_profiles").select("id").eq("user_id", user.id).single();
+            .from("mentor_profiles")
+            .select("id, onboarding_complete, calendar_connected")
+            .eq("user_id", user.id)
+            .maybeSingle();
           if (profileError) throw profileError;
+          if (!profileData?.id) {
+            setOnboardingComplete(false);
+            setCalendarConnected(false);
+            setSessions([]);
+            return;
+          }
           const mpId = profileData.id;
           setMentorProfileId(mpId);
+          setOnboardingComplete(profileData.onboarding_complete ?? false);
+          setCalendarConnected(profileData.calendar_connected ?? false);
 
           const { data, error: sessErr } = await supabase
             .from("sessions").select("*, mentee:mentee_id(id, raw_user_meta_data)").eq("mentor_id", mpId);
@@ -275,6 +288,41 @@ export default function Dashboard() {
             </Link>
           )}
         </div>
+
+        {/* Onboarding banners (mentor only) */}
+        {isMentor && onboardingComplete === false && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold text-stone-800 text-sm">⚠️ Complete your mentor profile</p>
+              <p className="text-stone-500 text-xs mt-0.5">
+                You won't appear in the mentor directory until your profile is complete.
+              </p>
+            </div>
+            <Link
+              to="/onboarding"
+              className="flex-shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs rounded-xl transition-colors shadow-sm"
+            >
+              Finish setup →
+            </Link>
+          </div>
+        )}
+        {isMentor && onboardingComplete === true && calendarConnected === false && (
+          <div className="bg-stone-50 border border-stone-200 rounded-2xl px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold text-stone-800 text-sm">📅 Connect your calendar</p>
+              <p className="text-stone-500 text-xs mt-0.5">
+                Your profile is complete! Connect Google Calendar to start receiving bookings.
+                This feature is coming soon.
+              </p>
+            </div>
+            <Link
+              to="/onboarding"
+              className="flex-shrink-0 px-4 py-2 bg-stone-800 hover:bg-stone-700 text-white font-semibold text-xs rounded-xl transition-colors shadow-sm"
+            >
+              View step 4 →
+            </Link>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

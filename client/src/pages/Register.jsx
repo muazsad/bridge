@@ -44,7 +44,7 @@ export default function Register() {
     setLoading(true);
     try {
       await register(email.trim(), password, { full_name: fullName.trim(), role });
-      navigate("/mentors");
+      navigate(role === "mentor" ? "/onboarding" : "/mentors");
     } catch (err) {
       setServerError(err.message || "Registration failed. Please try again.");
     } finally {

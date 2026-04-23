@@ -11,7 +11,11 @@ export async function getMentorById(mentorProfileId) {
 }
 
 export async function getAllMentors(filters = {}) {
-  let query = supabase.from("mentor_profiles").select("*");
+  let query = supabase
+    .from("mentor_profiles")
+    .select("*")
+    .eq("onboarding_complete", true)
+    .eq("calendar_connected", true);
   Object.entries(filters).forEach(([field, value]) => {
     query = query.eq(field, value);
   });
@@ -24,6 +28,8 @@ export async function getFeaturedMentors() {
   const { data, error } = await supabase
     .from("mentor_profiles")
     .select("*")
+    .eq("onboarding_complete", true)
+    .eq("calendar_connected", true)
     .limit(6);
   if (error) throw error;
   return data || [];

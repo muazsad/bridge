@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import supabase from "../api/supabase";
+import { ensureMentorProfileForUser } from "../api/mentorOnboarding";
 
 export const AuthContext = createContext(null);
 
@@ -24,6 +25,11 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     setUser(data.user);
+    if (data.user?.user_metadata?.role === "mentor") {
+      ensureMentorProfileForUser(data.user).catch((e) =>
+        console.error("Could not ensure mentor profile on login:", e)
+      );
+    }
     return data.user;
   }
 
@@ -42,6 +48,13 @@ export function AuthProvider({ children }) {
     });
     if (error) throw error;
     setUser(data.user);
+    if (meta.role === "mentor" && data.user) {
+      try {
+        await ensureMentorProfileForUser(data.user);
+      } catch (e) {
+        console.error("Could not ensure mentor profile on register:", e);
+      }
+    }
     return data.user;
   }
 
