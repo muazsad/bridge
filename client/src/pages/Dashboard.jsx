@@ -165,15 +165,18 @@ export default function Dashboard() {
           const uniqueMentorIds = [...new Set((data || []).map((s) => s.mentor_id).filter(Boolean))];
           const mentorMap = {};
           await Promise.all(uniqueMentorIds.map(async (mid) => {
-            try { const m = await getMentorById(mid); if (m) mentorMap[mid] = m; } catch {}
+            try {
+              const result = await getMentorById(mid);
+              if (result.data?.mentor) mentorMap[mid] = result.data.mentor;
+            } catch {}
           }));
 
           rawSessions = (data || []).map((s) => {
             const m = mentorMap[s.mentor_id];
             return {
               ...s,
-              mentor_name: m ? m.full_name || `${m.first_name || ""} ${m.last_name || ""}`.trim() || "Mentor" : s.mentor_name || "Mentor",
-              mentor_title: m?.title || m?.headline || "",
+              mentor_name: m ? m.name || "Mentor" : s.mentor_name || "Mentor",
+              mentor_title: m?.title || "",
               mentor_company: m?.company || "",
             };
           });

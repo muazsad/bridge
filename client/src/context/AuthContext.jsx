@@ -1,33 +1,54 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import supabase from "../api/supabase";
 import { ensureMentorProfileForUser } from "../api/mentorOnboarding";
+import { isMentorAccount } from "../utils/accountRole";
 
 export const AuthContext = createContext(null);
+
+async function syncMentorProfile(user) {
+  if (!user || !isMentorAccount(user)) return;
+  try {
+    await ensureMentorProfileForUser(user);
+  } catch (e) {
+    console.error("Could not ensure mentor profile:", e);
+  }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    let cancelled = false;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      if (event === 'SIGNED_IN' && session?.user?.user_metadata?.role === 'mentor') {
-        ensureMentorProfileForUser(session.user).catch(console.error);
+    void (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      const next = session?.user ?? null;
+      setUser(next);
+      if (next) await syncMentorProfile(next);
+      if (!cancelled) setLoading(false);
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const next = session?.user ?? null;
+      setUser(next);
+      if (next && (event === "SIGNED_IN" || event === "USER_UPDATED")) {
+        await syncMentorProfile(next);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function login(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     setUser(data.user);
+    await syncMentorProfile(data.user);
     return data.user;
   }
 
@@ -46,9 +67,7 @@ export function AuthProvider({ children }) {
     });
     if (error) throw error;
     setUser(data.user);
-    if (meta.role === 'mentor' && data.user) {
-      await ensureMentorProfileForUser(data.user);
-    }
+    await syncMentorProfile(data.user);
     return data.user;
   }
 
@@ -64,8 +83,9 @@ export function AuthProvider({ children }) {
   );
 }
 
+// Named export so components that import useAuth from this file directly still work.
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
 }
