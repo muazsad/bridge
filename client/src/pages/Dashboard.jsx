@@ -117,6 +117,9 @@ export default function Dashboard() {
   const [actionLoading, setActionLoading] = useState(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [mentorProfileId, setMentorProfileId] = useState(null);
+  // Default true to avoid flashing banners before data loads.
+  const [onboardingComplete, setOnboardingComplete] = useState(true);
+  const [calendarConnected, setCalendarConnected] = useState(true);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -131,10 +134,12 @@ export default function Dashboard() {
 
         if (isMentor) {
           const { data: profileData, error: profileError } = await supabase
-            .from("mentor_profiles").select("id").eq("user_id", user.id).single();
+            .from("mentor_profiles").select("id, onboarding_complete, calendar_connected").eq("user_id", user.id).single();
           if (profileError) throw profileError;
           const mpId = profileData.id;
           setMentorProfileId(mpId);
+          setOnboardingComplete(profileData.onboarding_complete ?? true);
+          setCalendarConnected(profileData.calendar_connected ?? true);
 
           const { data, error: sessErr } = await supabase
             .from("sessions").select("*, mentee:mentee_id(id, raw_user_meta_data)").eq("mentor_id", mpId);
@@ -275,6 +280,42 @@ export default function Dashboard() {
             </Link>
           )}
         </div>
+
+        {/* Setup banners — mentor only, hidden once both flags are true */}
+        {isMentor && !onboardingComplete && (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="text-xl mt-0.5">📋</span>
+              <div>
+                <p className="font-semibold text-amber-900 text-sm">Complete your mentor profile</p>
+                <p className="text-amber-700 text-xs mt-0.5">
+                  Finish the 4-step setup to appear in the mentor directory.
+                </p>
+              </div>
+            </div>
+            <Link to="/onboarding"
+              className="flex-shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-sm rounded-xl transition-colors shadow-sm">
+              Finish setup →
+            </Link>
+          </div>
+        )}
+        {isMentor && onboardingComplete && !calendarConnected && (
+          <div className="rounded-2xl border border-stone-200 bg-white px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="text-xl mt-0.5">📅</span>
+              <div>
+                <p className="font-semibold text-stone-800 text-sm">Connect Google Calendar to go live</p>
+                <p className="text-stone-500 text-xs mt-0.5">
+                  Your profile is ready — calendar integration is coming soon.
+                </p>
+              </div>
+            </div>
+            <Link to="/onboarding"
+              className="flex-shrink-0 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-sm rounded-xl transition-colors border border-stone-200">
+              View step 4 →
+            </Link>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
