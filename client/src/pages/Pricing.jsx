@@ -4,6 +4,7 @@ import { useAuth } from '../context/useAuth';
 import { isMentorAccount } from '../utils/accountRole';
 import Reveal from '../components/Reveal';
 import { focusRing } from '../ui';
+import EmbeddedCheckoutPanel from '../components/EmbeddedCheckoutPanel';
 
 const ANNUAL_DISCOUNT = 0.2;
 
@@ -162,10 +163,42 @@ export default function Pricing() {
   const asMentor = user ? isMentorAccount(user) : false;
   const [annual, setAnnual] = useState(false);
   const [billingNote, setBillingNote] = useState(null);
+  const [checkoutClientSecret, setCheckoutClientSecret] = useState(null);
+  const [paymentError, setPaymentError] = useState('');
 
-  function handlePaidClick() {
-    setBillingNote('Checkout is not wired up yet — you can keep using Bridge on the free tier for now.');
-    window.setTimeout(() => setBillingNote(null), 5000);
+  async function handlePaidClick(planName) {
+    setPaymentError('');
+
+    if (!user) {
+      setPaymentError('Please log in before subscribing.');
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:3001/api/stripe/create-subscription-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          planName,
+          userId: user.id,
+          userEmail: user.email,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setPaymentError(data.error || 'Could not start checkout.');
+        return;
+      }
+
+      setCheckoutClientSecret(data.clientSecret);
+    } catch (error) {
+      console.error(error);
+      setPaymentError('Could not connect to payment server.');
+    }
   }
 
   const tiers = [
@@ -210,7 +243,7 @@ export default function Pricing() {
         'Mentor sessions booked separately',
       ],
       cta: 'Choose Starter',
-      onClick: handlePaidClick,
+      onClick: () => handlePaidClick('Starter'),
       primary: false,
     },
     {
@@ -228,7 +261,7 @@ export default function Pricing() {
         'Mentor sessions booked separately',
       ],
       cta: 'Choose Pro',
-      onClick: handlePaidClick,
+      onClick: () => handlePaidClick('Pro'),
       primary: true,
       badge: 'Most popular',
     },
@@ -247,7 +280,7 @@ export default function Pricing() {
         'Mentor sessions booked separately',
       ],
       cta: 'Choose Premium',
-      onClick: handlePaidClick,
+      onClick: () => handlePaidClick('Premium'),
       primary: false,
     },
   ];
@@ -296,6 +329,16 @@ export default function Pricing() {
           aria-labelledby="pricing-heading"
       >
         <PricingBackdrop />
+        {paymentError ? (
+            <div className="relative z-[3] mx-auto mt-4 max-w-3xl rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {paymentError}
+            </div>
+        ) : null}
+
+        <EmbeddedCheckoutPanel
+            clientSecret={checkoutClientSecret}
+            onClose={() => setCheckoutClientSecret(null)}
+        />
 
         {billingNote && (
           <div className="relative z-[3] mx-auto max-w-bridge px-4 pt-6 sm:px-6 lg:px-8">

@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo, useId, useCallback, useRef } from 'react';
+import EmbeddedCheckoutPanel from '../components/EmbeddedCheckoutPanel';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getMentorById } from '../api/mentors';
 import { getReviewsForMentor } from '../api/reviews';
 import { createSession } from '../api/sessions';
+import { getMentorAvailability, bookCalendarEvent } from '../api/calendar';
+import supabase from '../api/supabase';
 import { useAuth } from '../context/useAuth';
 import { isMentorAccount } from '../utils/accountRole';
 import { SESSION_TYPES } from '../constants/sessionTypes';
@@ -79,9 +82,15 @@ function StarRow({ rating, size = 'md' }) {
     );
 }
 
+function fmtTime(iso) {
+    return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 function BookingFlow({ mentor, sessionType, onReset, onRequestConfirm, user, navigate, mentorId }) {
     const [pickedDate, setPickedDate] = useState(null);
     const [pickedTime, setPickedTime] = useState(null);
+    const [calBusy, setCalBusy] = useState(null);
+    const [calLoading, setCalLoading] = useState(false);
     const scheduleNorm = useMemo(() => normalizeAvailabilitySchedule(mentor.availability_schedule), [mentor.availability_schedule]);
     const acceptingBookings = mentor.available !== false;
     const availability = useMemo(
@@ -99,6 +108,16 @@ function BookingFlow({ mentor, sessionType, onReset, onRequestConfirm, user, nav
     );
 
     useEffect(() => { setPickedTime(null); }, [pickedDate]);
+
+    useEffect(() => {
+        if (!pickedDate || !mentor.calendar_connected) { setCalBusy(null); return; }
+        setCalLoading(true);
+        setCalBusy(null);
+        const dateStr = pickedDate.toISOString().slice(0, 10);
+        getMentorAvailability(mentor.id, dateStr)
+            .then(({ busy }) => { setCalBusy(busy ?? []); setCalLoading(false); })
+            .catch(() => { setCalBusy(null); setCalLoading(false); });
+    }, [pickedDate, mentor.calendar_connected, mentor.id]);
 
     const canBook = Boolean(sessionType && pickedDate && pickedTime);
 
@@ -222,6 +241,18 @@ function BookingFlow({ mentor, sessionType, onReset, onRequestConfirm, user, nav
                             })}
                         </div>
 
+                        {mentor.calendar_connected && pickedDate ? (
+                            <div className="mt-3 text-xs">
+                                {calLoading
+                                    ? <span className="text-stone-400">Checking calendar…</span>
+                                    : calBusy !== null
+                                        ? calBusy.length === 0
+                                            ? <span className="font-medium text-emerald-700">All day available</span>
+                                            : <span className="text-amber-700">Busy: {calBusy.map(b => `${fmtTime(b.start)}–${fmtTime(b.end)}`).join(', ')}</span>
+                                        : null}
+                            </div>
+                        ) : null}
+
                         <div className={`mt-6 overflow-hidden transition-all duration-300 ${pickedDate ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
                             <div className="rounded-xl border border-[var(--bridge-border)] bg-[var(--bridge-surface-muted)] p-4">
                                 <div className="mb-3 flex items-baseline justify-between">
@@ -263,11 +294,11 @@ function BookingFlow({ mentor, sessionType, onReset, onRequestConfirm, user, nav
     );
 }
 
-function ConfirmModal({ mentor, confirmation, onClose, onConfirmed }) {
+function ConfirmModal({ mentor, user, confirmation, onClose, onConfirmed }) {
     const [submitting, setSubmitting] = useState(false);
     const [result, setResult] = useState(null);
     const [message, setMessage] = useState('');
-
+    const [checkoutClientSecret, setCheckoutClientSecret] = useState(null);
     const handleClose = useCallback(() => onClose(), [onClose]);
 
     useEffect(() => {
@@ -284,15 +315,38 @@ function ConfirmModal({ mentor, confirmation, onClose, onConfirmed }) {
     async function handleConfirm() {
         setSubmitting(true);
         setResult(null);
-        const { error } = await createSession({
-            mentorId: mentor.id,
-            sessionType: confirmation.sessionType.key,
-            scheduledDate: confirmation.isoDate,
-            message: message || null,
-        });
-        setSubmitting(false);
-        if (error) setResult({ ok: false, message: error.message ?? 'Something went wrong. Please try again.' });
-        else { setResult({ ok: true }); onConfirmed?.(); }
+
+        try {
+            const response = await fetch('http://localhost:3001/api/stripe/create-booking-checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    userId: user?.id,
+                    userEmail: user?.email,
+                    mentorId: mentor.id,
+                    mentorName: mentor.name,
+                    sessionType: confirmation.sessionType.name,
+                    scheduledDate: confirmation.isoDate,
+                    sessionPrice: mentor.session_price ?? 25,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                setResult({ ok: false, message: data.error || 'Could not start booking checkout.' });
+                return;
+            }
+
+            setCheckoutClientSecret(data.clientSecret);
+        } catch (error) {
+            console.error(error);
+            setResult({ ok: false, message: 'Could not connect to payment server.' });
+        } finally {
+            setSubmitting(false);
+        }
     }
 
     const mentorFirst = mentor.name?.split(/\s+/)[0] ?? 'your mentor';
@@ -300,6 +354,10 @@ function ConfirmModal({ mentor, confirmation, onClose, onConfirmed }) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+            <EmbeddedCheckoutPanel
+                clientSecret={checkoutClientSecret}
+                onClose={() => setCheckoutClientSecret(null)}
+            />
             <button type="button" className="absolute inset-0 bg-stone-950/70 backdrop-blur-[2px]" aria-label="Close" onClick={handleClose} />
             <div className="relative flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-[var(--bridge-surface)] shadow-2xl ring-1 ring-[var(--bridge-border)] sm:rounded-3xl">
                 {result?.ok ? (
@@ -348,8 +406,8 @@ function ConfirmModal({ mentor, confirmation, onClose, onConfirmed }) {
                         <footer className="shrink-0 border-t border-[var(--bridge-border)] bg-[var(--bridge-surface)] px-6 py-4 sm:px-7">
                             <div className="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
                                 <button type="button" onClick={handleClose} disabled={submitting} className={`rounded-xl border border-stone-200 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:opacity-60 ${focusRing}`}>Cancel</button>
-                                <button type="button" onClick={handleConfirm} disabled={submitting} className={`rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:from-amber-400 hover:to-orange-400 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[180px] ${focusRing}`}>
-                                    {submitting ? 'Sending…' : mentor.session_rate ? `Pay $${mentor.session_rate} & book` : 'Confirm booking'}
+                                <button
+                                    {submitting ? 'Opening checkout…' : `Pay $${mentor.session_price ?? 25} & request`}>
                                 </button>
                             </div>
                         </footer>
@@ -802,7 +860,15 @@ export default function MentorProfile() {
             </main>
 
             {pendingConfirm ? (
-                <ConfirmModal mentor={mentor} confirmation={pendingConfirm} onClose={() => setPendingConfirm(null)} onConfirmed={() => setSelectedType(null)} />
+                <ConfirmModal
+                    mentor={mentor}
+                    user={user}
+                    confirmation={pendingConfirm}
+                    onClose={() => setPendingConfirm(null)}
+                    onConfirmed={() => {
+                        setSelectedType(null);
+                    }}
+                />
             ) : null}
         </>
     );
