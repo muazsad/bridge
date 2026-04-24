@@ -64,3 +64,39 @@ export async function ensureMentorProfileForUser(user) {
     ensurePromises.delete(user.id);
   }
 }
+
+export { DEFAULT_BIO };
+
+export async function getMentorOnboardingProfile(userId) {
+  const { data, error } = await supabase
+    .from('mentor_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function saveMentorOnboardingStep(profileId, fields) {
+  const { error } = await supabase
+    .from('mentor_profiles')
+    .update(fields)
+    .eq('id', profileId);
+  if (error) throw error;
+}
+
+export async function completeMentorOnboarding(profileId) {
+  const { error } = await supabase
+    .from('mentor_profiles')
+    .update({ onboarding_complete: true })
+    .eq('id', profileId);
+  if (error) throw error;
+}
+
+export async function updateMentorProfile(profileId, data) {
+  const { error } = await supabase
+    .from('mentor_profiles')
+    .update(data)
+    .eq('id', profileId);
+  if (error) throw error;
+}
