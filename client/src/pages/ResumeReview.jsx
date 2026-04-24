@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getAIResumeReview } from '../api/aiResumeReview';
 import { uploadResumeToBucket, saveResumeReview, getResumeReview, deleteResumeReview } from '../api/resumeReview';
+import { hasReachedLimit, recordUsage } from '../api/aiUsage';
 import PageGutterAtmosphere from '../components/PageGutterAtmosphere';
 import { focusRing } from '../ui';
 
@@ -215,6 +216,7 @@ export default function ResumeReview() {
   const [saveError, setSaveError] = useState('');
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [limitReached, setLimitReached] = useState(false);
   const fileInputRef = useRef(null);
   const didLoadRef = useRef(false);
 
@@ -224,6 +226,11 @@ export default function ResumeReview() {
       navigate('/login', { state: { from: '/resume' } });
     }
   }, [user, authLoading, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+    void hasReachedLimit(user.id, 'resume_review').then(setLimitReached);
+  }, [user]);
 
   // Load existing review on mount
   useEffect(() => {
@@ -316,6 +323,12 @@ export default function ResumeReview() {
 
       setReview({ ...reviewData, experience_level: experienceLevel });
       setPageState('results');
+      try {
+        await recordUsage(user.id, 'resume_review');
+        setLimitReached(true);
+      } catch {
+        // recording failure is non-fatal — review still displays
+      }
     } catch (e) {
       setApiError(e.message || 'Something went wrong analyzing your resume.');
       setPageState('upload');
@@ -390,6 +403,12 @@ export default function ResumeReview() {
               </p>
             </div>
 
+            {limitReached ? (
+              <div className="rounded-[1.75rem] border border-amber-200/80 bg-amber-50/70 px-6 py-10 text-center shadow-bridge-card">
+                <p className="font-display text-base font-semibold text-amber-900">You&apos;ve used your free resume review.</p>
+                <p className="mt-1.5 text-sm text-amber-800/80">Each account receives one free AI review.</p>
+              </div>
+            ) : <>
             {/* API error */}
             {apiError && (
               <div className="mb-6 rounded-2xl border border-red-200/80 bg-red-50/90 px-5 py-4">
@@ -508,6 +527,9 @@ export default function ResumeReview() {
             </div>
 
             {/* CTA */}
+            <p className="mb-3 text-center text-xs font-medium text-stone-500">
+              1 free resume review per account
+            </p>
             <button
               type="button"
               onClick={analyzeResume}
@@ -519,6 +541,7 @@ export default function ResumeReview() {
             <p className="mt-3 text-center text-xs text-stone-400">
               Your resume is stored privately and only used to generate your review.
             </p>
+            </>}
           </>
         )}
 

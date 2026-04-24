@@ -29,6 +29,7 @@ import Terms from './pages/footer/Terms.jsx';
 import Cookies from './pages/footer/Cookies.jsx';
 import FeedbackFAB from './components/FeedbackFAB';
 import VideoCall from './pages/VideoCall';
+import MentorOnboarding from './pages/MentorOnboarding';
 
 function AppContent() {
   const location = useLocation();
@@ -57,6 +58,7 @@ function AppContent() {
           <Route path="/mentors" element={<Mentors />} />
           <Route path="/mentors/:id" element={<MentorProfile />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/onboarding" element={<MentorOnboarding />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/session/:sessionId/video" element={<VideoCall />} />
