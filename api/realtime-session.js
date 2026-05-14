@@ -3,7 +3,7 @@
 // Scope: Production + Preview
 // This key must never be prefixed with VITE_ — server only
 
-import { intakePrompt } from './prompts/intakePrompt.js'
+import { intakePrompt } from './_lib/intakePrompt.js'
 import supabase from './_lib/supabase.js'
 import { verifyAuthUser } from './_lib/auth.js'
 import { applyCors } from './_lib/allowedOrigins.js'
