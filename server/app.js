@@ -1,19 +1,12 @@
 /**
- * Express app — shared between local dev server and Vercel serverless function.
- * Does NOT call app.listen() — that's done by server/index.js for local dev.
- * Vercel imports this directly via api/server.js.
- *
- * MySQL-dependent legacy routes (auth, mentors, sessions) are mounted only
- * in server/index.js so they never load in the Vercel build (mysql2 is not
- * in root node_modules).
+ * Express app — local dev server only. Not used in Vercel production.
+ * Does NOT call app.listen() — that's done by server/index.js.
  */
 
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import stripeRoutes from './routes/stripe.js';
-import calendarRoutes from './routes/calendar.js';
-import googleAuthRoutes from './routes/googleAuth.js';
 import devRoutes from './routes/dev.js';
 import cancellationsRoute from './routes/cancellations.js';
 import createSubscriptionCheckout from '../api/create-subscription-checkout.js';
@@ -26,10 +19,9 @@ import calendlyEventTypesHandler from '../api/_lib/calendlyHandlers/event-types.
 import calendlyEventTypeSummaryHandler from '../api/_lib/calendlyHandlers/event-type-summary.js';
 import calendlySelectEventTypeHandler from '../api/_lib/calendlyHandlers/select-event-type.js';
 import calendlyWebhookHandler from '../api/calendly-webhook.js';
-import userNamesHandler from '../api/user-names.js';
+import utilsDispatcher from '../api/utils/[action].js';
 import verificationDispatcher from '../api/verification/[action].js';
 import adminReviewDispatcher from '../api/admin/review/[action].js';
-import cronVerificationRetryHandler from '../api/cron/verification-retry.js';
 
 const app = express();
 
@@ -75,8 +67,18 @@ app.get('/api/calendly-event-type-summary', wrapApiHandler(calendlyEventTypeSumm
 app.post('/api/calendly-select-event-type', wrapApiHandler(calendlySelectEventTypeHandler));
 app.post('/api/calendly-webhook', wrapApiHandler(calendlyWebhookHandler));
 
-// User names (admin client bypasses RLS for mentor dashboard mentee-name lookup)
-app.post('/api/user-names', wrapApiHandler(userNamesHandler));
+// Utils dispatcher — user-names, mentor-room-slug, verification-retry
+function dispatchUtils(req, res, next) {
+  const action = req.path.replace(/^\/api\//, '').replace(/\/$/, '');
+  req.query = { ...(req.query || {}), action };
+  Promise.resolve(utilsDispatcher(req, res)).catch(next);
+}
+app.all('/api/user-names', dispatchUtils);
+app.all('/api/mentor-room-slug', dispatchUtils);
+app.all('/api/cron/verification-retry', (req, res, next) => {
+  req.query = { ...(req.query || {}), action: 'verification-retry' };
+  Promise.resolve(utilsDispatcher(req, res)).catch(next);
+});
 
 // Mentor verification & tiering — dispatcher routes /api/verification/<action>
 // to the same handler used by Vercel rewrites in production.
@@ -99,16 +101,7 @@ function dispatchAdminReview(req, res, next) {
 }
 app.all(/^\/api\/admin\/review-[a-z-]+$/i, dispatchAdminReview);
 
-// Cron — same handler for local + Vercel.
-app.all('/api/cron/verification-retry', wrapApiHandler(cronVerificationRetryHandler));
-
 // ── Routes ────────────────────────────────────────────────────────────────────
-// Google OAuth — must be at /auth/google so the redirect URI matches
-app.use('/auth/google', googleAuthRoutes);
-
-// Calendar — availability + booking
-app.use('/calendar', calendarRoutes);
-
 // Stripe checkout
 app.use('/api/stripe', stripeRoutes);
 

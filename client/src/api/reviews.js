@@ -1,6 +1,4 @@
 import supabase from './supabase';
-import { sendSupportEmail } from './supportEmail';
-import { COMPANY_EMAIL } from '../config/contact';
 
 /**
  * @param {{ sessionId: string, mentorId: string, rating: number, comment?: string|null }} params
@@ -62,13 +60,8 @@ export async function getMyReviewedSessionIds() {
 }
 
 /**
- * Sends two review notification emails:
- *  1. Company inbox via Web3Forms
- *  2. Mentor's email via Supabase Edge Function (if mentorEmail is provided)
- *
+ * Notifies the mentor via Supabase Edge Function (Resend) when a new review is submitted.
  * Failures are non-fatal — the review is already saved in the DB by the time this runs.
- *
- * @param {{ mentorName: string, mentorEmail: string|null, reviewerEmail: string|null, rating: number, comment: string|null, sessionId: string }} params
  */
 export async function sendReviewNotificationEmail({
   mentorName,
@@ -78,53 +71,33 @@ export async function sendReviewNotificationEmail({
   comment,
   sessionId,
 }) {
+  if (!mentorEmail?.trim()) return;
+
   const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
   const ticketId = `REV-${sessionId.slice(0, 8).toUpperCase()}`;
-  const subject = `[Bridge] New Review for ${mentorName} — ${stars} (${rating}/5)`;
   const commentText = comment?.trim() || '(No written comment left)';
-
-  const sharedMeta = {
+  const meta = {
     Mentor: mentorName,
-    'Mentor Email': mentorEmail || '(not on file)',
+    'Mentor Email': mentorEmail,
     Rating: `${rating}/5  ${stars}`,
     'Session ID': sessionId,
+    'Sent to': mentorEmail,
   };
 
-  // 1. Company email via Web3Forms
   try {
-    await sendSupportEmail({
-      kind: 'feedback',
-      ticketId,
-      subject,
-      body: commentText,
-      replyTo: reviewerEmail || undefined,
-      fromName: 'Bridge Review System',
-      meta: sharedMeta,
+    await supabase.functions.invoke('send-support-email', {
+      body: {
+        kind: 'feedback',
+        ticketId,
+        subject: `[Bridge] You received a new review — ${stars}`,
+        body: commentText,
+        replyTo: reviewerEmail || undefined,
+        fromName: 'Bridge Review System',
+        meta,
+        toOverride: mentorEmail,
+      },
     });
   } catch (err) {
-    console.warn('[review] Company email failed:', err?.message ?? err);
-  }
-
-  // 2. Mentor email via Edge Function (Resend), only if we have an address
-  if (mentorEmail?.trim()) {
-    try {
-      await supabase.functions.invoke('send-support-email', {
-        body: {
-          kind: 'feedback',
-          ticketId,
-          subject: `[Bridge] You received a new review — ${stars}`,
-          body: commentText,
-          replyTo: reviewerEmail || undefined,
-          fromName: 'Bridge Review System',
-          meta: {
-            ...sharedMeta,
-            'Sent to': mentorEmail,
-          },
-          toOverride: mentorEmail,
-        },
-      });
-    } catch (err) {
-      console.warn('[review] Mentor email failed:', err?.message ?? err);
-    }
+    console.warn('[review] Mentor email failed:', err?.message ?? err);
   }
 }
