@@ -14,16 +14,16 @@ export const COMPONENT_WEIGHTS = Object.freeze({
 });
 
 export const COMPONENTS = Object.freeze(Object.keys(COMPONENT_WEIGHTS));
-export const TIERS = Object.freeze(['bronze', 'silver', 'gold', 'platinum']);
+export const TIERS = Object.freeze(['rising', 'professional', 'senior', 'elite']);
 
-const TIER_FLOOR = Object.freeze({ bronze: 0, silver: 40, gold: 70, platinum: 90 });
+const TIER_FLOOR = Object.freeze({ rising: 0, professional: 50, senior: 70, elite: 88 });
 
 export function tierForScore(score) {
   const s = Number(score) || 0;
-  if (s >= TIER_FLOOR.platinum) return 'platinum';
-  if (s >= TIER_FLOOR.gold)     return 'gold';
-  if (s >= TIER_FLOOR.silver)   return 'silver';
-  return 'bronze';
+  if (s >= TIER_FLOOR.elite)        return 'elite';
+  if (s >= TIER_FLOOR.senior)       return 'senior';
+  if (s >= TIER_FLOOR.professional) return 'professional';
+  return 'rising';
 }
 
 export function nextTier(tier) {
