@@ -14,7 +14,7 @@ const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 
 export const authSupabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'missing-supabase-anon-key',
+  process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'missing-supabase-anon-key',
 );
 
 const LIMITS = {
@@ -588,7 +588,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ result });
   } catch (error) {
     console.error('[ai-proxy] request failed', { action, userId: user.id, error });
-    const detail = error?.message || String(error);
+    const detail = error instanceof Error
+      ? error.message
+      : (error?.message || JSON.stringify(error) || String(error));
     return res.status(500).json({ error: 'AI request failed', detail });
   }
 }
